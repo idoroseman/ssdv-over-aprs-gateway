@@ -59,6 +59,7 @@ class APRSISClient(threading.Thread):
         self.socket.send(msg.encode())
 
     def close(self):
+        print ("closing connection to aprsis")
         self.isRunning = False
         self.socket.close()
 

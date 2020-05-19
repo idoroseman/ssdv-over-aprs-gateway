@@ -5,6 +5,9 @@ import base64
 import binascii
 from aprsis import APRSISClient
 from kiss import KISS
+import json
+import time
+import os
 
 # code based on work by
 #   https://github.com/DL7AD/pecanpico9/blob/3008ff27fe6a80bf22438779077a0475d33bd389/decoder/decoder.py
@@ -37,22 +40,19 @@ class aprs2ssdv():
         self.count = 0
 
     def merge(self, header, i, j):
-        pre = ''.join([chr(x) for x in [0x55, 0x66]])
-        cs = ''.join([chr(x) for x in [0x02, 0x6B, 0x55, 0x8D ]])
-        data =  pre+cs+header+i+j[:-1]
+        pre = bytearray([0x55, 0x66])
+        cs = bytearray([0x02, 0x6B, 0x55, 0x8D ])
+        data = pre+cs+header+i+j[:-1]
         crc = binascii.crc32(data[1:])
-        data += chr((crc>>24) & 0xff)
-        data += chr((crc>>16) & 0xff)
-        data += chr((crc>>8) & 0xff)
-        data += chr((crc) & 0xff)
-        data += ''.join(['\0'] * 32) # fec
+        data += crc.to_bytes(4, 'big')
+        data += bytearray([0] * 32) # fec
         return data
 
     def upload(self, packet, receivers):
         self.count += 1
         packet_dict = {
             "type": "packet",
-            "packet": base64.b64encode(packet),
+            "packet": base64.b64encode(packet).decode('ASCII'),
             "encoding": "base64",
             # Because .isoformat() doesnt give us the right format... (boo)
             "received": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -68,7 +68,10 @@ class aprs2ssdv():
         if msg == '':
             return
         if msg.startswith("#"):
-            print("heartbeat:", msg.strip())
+            if msg.startswith("# aprsc"):
+                pass
+            else:
+                print("server:", msg.strip())
             return
         header, payload = msg.split(":", 1)
         tokens = header.split(',')
@@ -79,10 +82,13 @@ class aprs2ssdv():
             if payload.startswith("{{"):
               with open("log/ssdv.log","a+") as f:
                  f.write(msg);
-              self.process_line(receiver, payload)
+              packet, image_id = self.process_line(receiver, payload)
+              if packet is not None:
+                  self.upload(packet, self.receivers[image_id])
             else:
               with open("log/aprs.log","a+") as f:
                  f.write(msg)
+
     def process_line(self, receiver, line):
         data = decode(line[6:])
         packet_type = line[2]
@@ -109,23 +115,28 @@ class aprs2ssdv():
         keys = "".join(list(self.packets[hash].keys()))
         if keys == "IJ":
             packet = self.merge(self.headers[hash], self.packets[hash]['I'], self.packets[hash]['J'])
-            self.upload(packet, self.receivers[image_id])
+            return packet, image_id
         elif keys == "IK":
             data = ''.join([chr(self.packets[hash]['I'][i] ^ self.packets[hash]['K'][i]) for i in range(len(self.packets[hash]['K']))])
             packet = self.merge(self.headers[hash], self.packets[hash]['I'], data)
-            self.upload(packet, self.receivers[image_id])
+            return packet, image_id
         elif keys == "KJ":
             data = ''.join([chr(self.packets[hash]['J'][i] ^ self.packets[hash]['K'][i]) for i in range(len(self.packets[hash]['K']))])
             packet = self.merge(self.headers[hash], data, self.packets[hash]['J'])
-            self.upload(packet, self.receivers[image_id])
+            return packet, image_id
         elif len(keys) == 3:
             # verify crc
             pass
+        return None, 0
 
 
 ########################################################################################################################
 
 if __name__ == "__main__":
+    try:
+        os.mkdir("log")
+    except:
+        pass
     a2s = aprs2ssdv('4x6ub')
     # connect to aprs-is network
     client = APRSISClient(callsign="4X6UB")
@@ -139,8 +150,9 @@ if __name__ == "__main__":
     print("started")
     while True:
         try:
-            pass
-        except KeyboardInterrupt:  # If CTRL+C is pressed, exit cleanly
+            time.sleep(1)
+        except KeyboardInterrupt: # If CTRL+C is pressed, exit cleanly
+            print("QRT")
             break
         except Exception as x:
             print("unhandled exception")
