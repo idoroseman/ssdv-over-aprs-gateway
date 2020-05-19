@@ -68,10 +68,7 @@ class aprs2ssdv():
         if msg == '':
             return
         if msg.startswith("#"):
-	    if not msg.startswith("# aprsc"):
-                print("server:",msg.strip())
-#            else:
-#                print("heartbeat:", msg.strip())
+            print("heartbeat:", msg.strip())
             return
         header, payload = msg.split(":", 1)
         tokens = header.split(',')
@@ -144,8 +141,7 @@ if __name__ == "__main__":
         try:
             pass
         except KeyboardInterrupt:  # If CTRL+C is pressed, exit cleanly
-           print("break") 
-           break
+            break
         except Exception as x:
             print("unhandled exception")
             print(x)
@@ -157,4 +153,3 @@ if __name__ == "__main__":
 
     client.close()
     print("done")
-
