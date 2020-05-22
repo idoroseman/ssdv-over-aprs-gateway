@@ -44,14 +44,15 @@ class APRSISClient(threading.Thread):
                 print(msg)
                 self.socket.close()
                 self.connect()
+            except TypeError as x:
+                print(x)
             except Exception as x:
-                if 'errno' in x and x.errno == 107: # Connection refused
-                    try:
-                        self.socket.connect((self.addr, self.port))
-                    except:
-                        time.sleep(1)
-                else:
-                    print(("listener error:", x))
+                print("listener error:", x)
+                try:
+                    if x.errno == 107:
+                       self.socket.connect((self.addr, self.port))
+                except:
+                    time.sleep(1)
 
     # 
     def send(self, msg):

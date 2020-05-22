@@ -42,6 +42,7 @@ class aprs2ssdv():
     def merge(self, header, i, j):
         pre = bytearray([0x55, 0x66])
         cs = bytearray([0x02, 0x6B, 0x55, 0x8D ])
+        print([ type(x) for x in [pre,cs,header,i,j]])
         data = pre+cs+header+i+j[:-1]
         crc = binascii.crc32(data[1:])
         data += crc.to_bytes(4, 'big')
