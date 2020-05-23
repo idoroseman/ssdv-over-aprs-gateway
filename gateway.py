@@ -38,15 +38,24 @@ class aprs2ssdv():
         self.callsign = callsign
         self.ssdv_url = "http://ssdv.habhub.org/api/v0/packets"
         self.count = 0
+        self.prev_image_id = -1
+        self.prev_packet_id = -1
+        self.result = None
 
     def merge(self, header, i, j):
         pre = bytearray([0x55, 0x66])
         cs = bytearray([0x02, 0x6B, 0x55, 0x8D ])
-        print([ type(x) for x in [pre,cs,header,i,j]])
-        data = pre+cs+header+i+j[:-1]
-        crc = binascii.crc32(data[1:])
-        data += crc.to_bytes(4, 'big')
-        data += bytearray([0] * 32) # fec
+        # print([ type(x) for x in [pre,cs,header,i,j]])
+        try:
+           data = pre+cs+header+i+j[:-1]
+           crc = binascii.crc32(data[1:])
+           data += crc.to_bytes(4, 'big')
+           data += bytearray([0] * 32) # fec
+        except Exception as x:
+           print(x)
+           print("header:", header)
+           print("i:", i)
+           print("j:", j)
         return data
 
     def upload(self, packet, receivers):
@@ -60,13 +69,15 @@ class aprs2ssdv():
             "receiver": receivers[self.count % len(receivers)],
         }
         r = requests.post(self.ssdv_url, json=packet_dict)
-        print(r,r.text)
+        self.result = r.status_code
+        if r.status_code != 200:
+          print("return code",r,r.text)
 
     def process_aprs(self, msg):
         # 4X6UB-11>APE6UB,WIDE1-1,WIDE2-1,qAO,4X6UB:{{KAAJt7FN/C"Kb^{/!R=^:POi#r4J_;x-"RsP68s%/xuXwLt{[p*b}S?bYy4Wu-u/4<h&QOTzP(NY3q`?ubP]KT3RPo%wi2SF)$W$Cb,X_j;awulms{iIap(~;;;HWK^Fw]VM*ntFFxE
         # 4X6UB-11>APE6UB,WIDE1-1,WIDE2-1,qAO,4X6UB:{{IAANt7F5FuWKA,os%rHvWZn[sY30`:J5&#E1enIE&K_^,q8b{-!Wl[${G,uR5WsaYpz;s+]xUA,FW0^tdO{(Gx-!bxwFL-/NX$wZZurY*.xuc0D<?e}/:&Hs~x9}l&=/~K}&?<3}:ZE
         # 4X6UB-11>APE6UB,WIDE1-1,WIDE2-1,qAO,4X6UB:{{JAANt7F5FuWJ^levb2Y0?6`<7qSxX1S2~b{;u2<RlXn"[%hR{mKPWg{1D3U.W.~d2Yll(Am+oG9esBbI7"a>Q[sY3Do:gY-P}k/#0d{87oi#V{FpqoOZY5%j)KaW_+rq~;64-c+/3FA
-        if msg == '':
+        if msg == '' or msg == None:
             return
         if msg.startswith("#"):
             if msg.startswith("# aprsc"):
@@ -79,7 +90,7 @@ class aprs2ssdv():
         src, dest = tokens[0].split(">")
         receiver = tokens[-1]
         if dest == 'APE6UB' :
-            print("data:", payload.strip())
+            # print("data:", payload.strip())
             if payload.startswith("{{"):
               with open("log/ssdv.log","a+") as f:
                  f.write(msg);
@@ -100,14 +111,22 @@ class aprs2ssdv():
         flags = data[5]
         mcu_offset = data[6]
         mcu_index = data[7] * 0x100 + data[8]
-        print("-> got packet %4s %4s %s" % ( image_id, packet_id, packet_type))
+        if image_id != self.prev_image_id or packet_id != self.prev_packet_id:
+            if self.result is not None:
+               print(" -> <%s>" % self.result, end ="")
+            print()
+            print("-> got image %4s, packet %4s " % ( image_id, packet_id), end="")
+            self.result = None
+        print(packet_type, end="")
+        self.prev_image_id = image_id
+        self.prev_packet_id = packet_id
         hash = "%04s%02s" % (image_id, packet_id)
         if hash not in self.packets:
             self.packets[hash] = {}
         if hash not in self.headers:
             self.headers[hash] = data[0:9]
         elif data[0:9] != self.headers[hash]:
-            print("header error", data[0:9], self.headers[hash])
+            print("header missmatch", data[0:9], self.headers[hash])
         if image_id not in self.receivers:
                 self.receivers[image_id] = ['SSDV over APRS']
         self.packets[hash][packet_type] = data[9:]
@@ -118,13 +137,15 @@ class aprs2ssdv():
             packet = self.merge(self.headers[hash], self.packets[hash]['I'], self.packets[hash]['J'])
             return packet, image_id
         elif keys == "IK":
-            data = ''.join([chr(self.packets[hash]['I'][i] ^ self.packets[hash]['K'][i]) for i in range(len(self.packets[hash]['K']))])
+            data = bytearray([self.packets[hash]['I'][i] ^ self.packets[hash]['K'][i] for i in range(len(self.packets[hash]['K']))])
             packet = self.merge(self.headers[hash], self.packets[hash]['I'], data)
             return packet, image_id
-        elif keys == "KJ":
-            data = ''.join([chr(self.packets[hash]['J'][i] ^ self.packets[hash]['K'][i]) for i in range(len(self.packets[hash]['K']))])
+        elif keys == "JK":
+            data = bytearray([self.packets[hash]['J'][i] ^ self.packets[hash]['K'][i] for i in range(len(self.packets[hash]['K']))])
             packet = self.merge(self.headers[hash], data, self.packets[hash]['J'])
             return packet, image_id
+        elif len(keys) == 2:
+            print("keys are not ordered", keys)
         elif len(keys) == 3:
             # verify crc
             pass
