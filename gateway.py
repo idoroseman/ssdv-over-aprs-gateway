@@ -126,7 +126,9 @@ class aprs2ssdv():
         if hash not in self.headers:
             self.headers[hash] = data[0:9]
         elif data[0:9] != self.headers[hash]:
-            print("header missmatch", data[0:9], self.headers[hash])
+            print("header missmatch")
+            print(data[0:9])
+            print(self.headers[hash])
         if image_id not in self.receivers:
                 self.receivers[image_id] = ['SSDV over APRS']
         self.packets[hash][packet_type] = data[9:]
