@@ -41,6 +41,9 @@ class aprs2ssdv():
         self.prev_image_id = -1
         self.prev_packet_id = -1
         self.result = None
+        self.countEnabled = False
+        self.timeCount = 0
+        self.timeout = 60
 
     def merge(self, header, i, j):
         pre = bytearray([0x55, 0x66])
@@ -68,6 +71,7 @@ class aprs2ssdv():
             "received": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "receiver": receivers[self.count % len(receivers)],
         }
+
         r = requests.post(self.ssdv_url, json=packet_dict)
         self.result = r.status_code
         if r.status_code != 200:
@@ -94,6 +98,7 @@ class aprs2ssdv():
             if payload.startswith("{{"):
               with open("log/ssdv.log","a+") as f:
                  f.write(msg);
+              self.resetTimer()
               packet, image_id = self.process_line(receiver, payload)
               if packet is not None:
                   self.upload(packet, self.receivers[image_id])
@@ -130,7 +135,8 @@ class aprs2ssdv():
             print(data[0:9])
             print(self.headers[hash])
         if image_id not in self.receivers:
-                self.receivers[image_id] = ['SSDV over APRS']
+            print("new image id %s" % image_id)
+            self.receivers[image_id] = ['SSDV over APRS']
         self.packets[hash][packet_type] = data[9:]
         if receiver not in self.receivers[image_id]:
             self.receivers[image_id] += [receiver]
@@ -153,6 +159,27 @@ class aprs2ssdv():
             pass
         return None, 0
 
+    def onTimeout(self):
+        if self.result is not None:
+            print(" -> <%s>" % self.result, end="")
+            self.result = None
+        print()
+        self.packets = {}
+        self.headers = {}
+        self.receivers = {}
+
+    def resetTimer(self):
+        self.countEnabled = True
+        self.timeCount = 0
+
+    def tick(self):
+        if not self.countEnabled:
+            return
+        self.timeCount += 1
+        if self.timeCount > self.timeout:
+            self.onTimeout()
+            self.countEnabled = False
+            self.timeCount = 0
 
 ########################################################################################################################
 
@@ -162,6 +189,7 @@ if __name__ == "__main__":
     except:
         pass
     a2s = aprs2ssdv('4x6ub')
+
     # connect to aprs-is network
     client = APRSISClient(callsign="4X6UB")
     client.onReceive = a2s.process_aprs
@@ -175,6 +203,7 @@ if __name__ == "__main__":
     while True:
         try:
             time.sleep(1)
+            a2s.tick()
         except KeyboardInterrupt: # If CTRL+C is pressed, exit cleanly
             print("QRT")
             break

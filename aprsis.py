@@ -50,7 +50,12 @@ class APRSISClient(threading.Thread):
                 print("listener error:", x)
                 try:
                     if x.errno == 107:
-                       self.socket.connect((self.addr, self.port))
+                        self.socket.connect((self.addr, self.port))
+                    elif x.errno == 54:
+                        time.sleep(3)
+                        self.connect()
+                    else:
+                        print("errno=%s" % x.errno)
                 except:
                     time.sleep(1)
 
