@@ -8,3 +8,6 @@ __pycache__/
 
 # data files
 log/*
+
+# IDE
+idea/*
